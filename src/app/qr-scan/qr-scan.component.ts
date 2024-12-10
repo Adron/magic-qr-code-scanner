@@ -13,21 +13,78 @@ export class QrScanComponent implements OnDestroy {
   html5QrCode: Html5Qrcode | null = null;
   statusMessage = '';
   isError = false;
+  private lastErrorTime = 0;
+  private readonly ERROR_SUPPRESSION_DURATION = 300000; // 5 minutes in milliseconds
+  private readonly DUPLICATE_CHECK_DURATION = 60000; // 1 minute
+  private recentScans = new Map<string, number>();
+
+  // Common error messages to suppress
+  private readonly SUPPRESSED_ERRORS = [
+    'No QR code found',
+    'No barcode or QR code detected',
+    'QR code parse error'
+  ];
   
   constructor(
     private logger: LoggerService,
     private qrHistory: QrHistoryService
   ) {}
 
-  private updateStatus(message: string, isError = false) {
+  private updateStatus(message: string, isError = false, duration = 3000) {
     this.logger.info('Status Update', { message, isError });
     this.statusMessage = message;
     this.isError = isError;
+    
+    // Clear status message after specified duration unless it's an error
+    if (!isError && duration > 0) {
+      setTimeout(() => {
+        if (this.statusMessage === message) {
+          this.statusMessage = '';
+        }
+      }, duration);
+    }
+  }
+
+  private shouldSuppressError(error: string): boolean {
+    // Check if the error message contains any of the suppressed phrases
+    const isCommonError = this.SUPPRESSED_ERRORS.some(suppressedError => 
+      error.toLowerCase().includes(suppressedError.toLowerCase())
+    );
+
+    if (!isCommonError) {
+      return false; // Don't suppress uncommon errors
+    }
+
+    const now = Date.now();
+    if (now - this.lastErrorTime < this.ERROR_SUPPRESSION_DURATION) {
+      return true;
+    }
+    this.lastErrorTime = now;
+    return false;
+  }
+
+  private isRecentlyScanned(decodedText: string): boolean {
+    const now = Date.now();
+    const lastScanTime = this.recentScans.get(decodedText);
+    
+    // Clean up old entries
+    this.recentScans.forEach((timestamp, code) => {
+      if (now - timestamp > this.DUPLICATE_CHECK_DURATION) {
+        this.recentScans.delete(code);
+      }
+    });
+
+    if (lastScanTime && now - lastScanTime < this.DUPLICATE_CHECK_DURATION) {
+      return true;
+    }
+
+    this.recentScans.set(decodedText, now);
+    return false;
   }
 
   async startScan() {
     this.logger.debug('Starting QR scanner');
-    this.updateStatus('Starting camera...');
+    this.updateStatus('Starting camera...', false, 0);
     
     try {
       this.isScannerEnabled = true;
@@ -66,7 +123,7 @@ export class QrScanComponent implements OnDestroy {
         this.logger.info('Selected camera', { camera: frontCamera });
 
         const config = {
-          fps: 10,
+          fps: 2, // Reduced FPS
           qrbox: { width: 200, height: 200 },
           aspectRatio: 1,
           experimentalFeatures: {
@@ -86,20 +143,27 @@ export class QrScanComponent implements OnDestroy {
           config,
           (decodedText) => {
             this.logger.info('QR Code scanned', { decodedText });
-            this.updateStatus('QR Code scanned successfully!');
-            this.qrHistory.addScan(decodedText);
-            this.stopScanner();
-            alert(`QR Code scanned: ${decodedText}`);
+            
+            if (this.isRecentlyScanned(decodedText)) {
+              // Show duplicate scan message
+              this.updateStatus(`ID already scanned, ID is: ${decodedText}`, false, 5000);
+              this.logger.info('Duplicate scan detected', { decodedText });
+            } else {
+              // Process new scan
+              this.qrHistory.addScan(decodedText);
+              this.updateStatus(`Scanned: ${decodedText}`, false, 5000);
+            }
           },
           (error) => {
-            if (!error.includes('No QR code found')) {
+            // Only log and show errors that shouldn't be suppressed
+            if (!this.shouldSuppressError(error)) {
               this.logger.error('Scanner error', { error });
               this.updateStatus(`Scanner error: ${error}`, true);
             }
           }
         );
         this.logger.info('Camera initialized successfully');
-        this.updateStatus('Camera ready! Point at a QR code to scan.');
+        this.updateStatus('Camera ready! Point at a QR code to scan.', false, 0);
       } else {
         throw new Error('No cameras found');
       }

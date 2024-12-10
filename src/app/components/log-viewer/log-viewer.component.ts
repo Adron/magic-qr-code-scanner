@@ -28,4 +28,13 @@ export class LogViewerComponent implements OnInit {
   getLogClass(level: LogLevel): string {
     return `log-${level.toLowerCase()}`;
   }
+
+  togglePause() {
+    const isPaused = this.logger.togglePause();
+    this.logger.info(isPaused ? 'Logs paused' : 'Logs resumed');
+  }
+
+  isPaused(): boolean {
+    return this.logger.isPauseActive();
+  }
 } 

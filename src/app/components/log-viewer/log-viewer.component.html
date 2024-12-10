@@ -4,9 +4,14 @@
       <i class="fas" [class.fa-chevron-left]="isExpanded" [class.fa-chevron-right]="!isExpanded"></i>
     </button>
     <span *ngIf="isExpanded">System Logs</span>
-    <button *ngIf="isExpanded" class="clear-button" (click)="clearLogs()">
-      <i class="fas fa-trash"></i>
-    </button>
+    <div class="log-controls" *ngIf="isExpanded">
+      <button class="control-button" (click)="togglePause()" [class.active]="isPaused()">
+        <i class="fas" [class.fa-pause]="!isPaused()" [class.fa-play]="isPaused()"></i>
+      </button>
+      <button class="control-button" (click)="clearLogs()">
+        <i class="fas fa-trash"></i>
+      </button>
+    </div>
   </div>
   
   <div class="log-content" *ngIf="isExpanded">
