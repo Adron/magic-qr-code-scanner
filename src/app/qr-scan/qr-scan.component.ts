@@ -123,9 +123,10 @@ export class QrScanComponent implements OnDestroy {
         this.logger.info('Selected camera', { camera: frontCamera });
 
         const config = {
-          fps: 2, // Reduced FPS
-          qrbox: { width: 200, height: 200 },
+          fps: 10, // Increased from 2 to 10 FPS for faster scanning
+          qrbox: { width: 250, height: 250 }, // Increased scan area
           aspectRatio: 1,
+          disableFlip: false, // Allow image flipping for better detection
           experimentalFeatures: {
             useBarCodeDetectorIfSupported: true
           },
@@ -142,6 +143,7 @@ export class QrScanComponent implements OnDestroy {
           frontCamera.id,
           config,
           (decodedText) => {
+            // Process scan immediately
             this.logger.info('QR Code scanned', { decodedText });
             
             if (this.isRecentlyScanned(decodedText)) {
@@ -149,9 +151,11 @@ export class QrScanComponent implements OnDestroy {
               this.updateStatus(`ID already scanned, ID is: ${decodedText}`, false, 5000);
               this.logger.info('Duplicate scan detected', { decodedText });
             } else {
-              // Process new scan
-              this.qrHistory.addScan(decodedText);
-              this.updateStatus(`Scanned: ${decodedText}`, false, 5000);
+              // Process new scan immediately
+              requestAnimationFrame(() => {
+                this.qrHistory.addScan(decodedText);
+                this.updateStatus(`Scanned: ${decodedText}`, false, 5000);
+              });
             }
           },
           (error) => {
