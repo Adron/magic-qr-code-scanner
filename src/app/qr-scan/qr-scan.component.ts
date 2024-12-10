@@ -13,6 +13,8 @@ export class QrScanComponent implements OnDestroy {
   html5QrCode: Html5Qrcode | null = null;
   statusMessage = '';
   isError = false;
+  isZoomedMode = false;
+  private activeStream: MediaStream | null = null;
   private lastErrorTime = 0;
   private readonly ERROR_SUPPRESSION_DURATION = 300000; // 5 minutes in milliseconds
   private readonly DUPLICATE_CHECK_DURATION = 60000; // 1 minute
@@ -43,6 +45,56 @@ export class QrScanComponent implements OnDestroy {
         }
       }, duration);
     }
+  }
+
+  async onScanModeChange(mode: string) {
+    this.isZoomedMode = mode === 'zoomed';
+    if (!this.activeStream) return;
+
+    try {
+      const videoTrack = this.activeStream.getVideoTracks()[0];
+      
+      // Apply different settings based on mode
+      if (this.isZoomedMode) {
+        // Zoomed mode: Higher resolution for distance scanning
+        await videoTrack.applyConstraints({
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+          frameRate: { ideal: 15 } // Lower frame rate for better quality
+        });
+        this.logger.info('Switched to zoomed mode');
+        this.updateStatus('Switched to zoomed mode (8-12 inches)', false, 3000);
+      } else {
+        // Normal mode: Standard resolution for close scanning
+        await videoTrack.applyConstraints({
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+          frameRate: { ideal: 30 } // Higher frame rate for responsiveness
+        });
+        this.logger.info('Switched to normal mode');
+        this.updateStatus('Switched to normal mode (1-3 inches)', false, 3000);
+      }
+    } catch (error) {
+      this.logger.error('Failed to update camera settings', { error });
+      this.updateStatus('Failed to change scan mode', true);
+    }
+  }
+
+  private async initializeCamera(deviceId: string): Promise<MediaStream> {
+    const constraints: MediaStreamConstraints = {
+      video: {
+        deviceId: deviceId,
+        width: { min: 640, ideal: this.isZoomedMode ? 1920 : 1280, max: 1920 },
+        height: { min: 480, ideal: this.isZoomedMode ? 1080 : 720, max: 1080 },
+        frameRate: { min: 15, ideal: this.isZoomedMode ? 15 : 30, max: 30 },
+        facingMode: "user",
+        aspectRatio: { ideal: 1.7777777778 }
+      }
+    };
+
+    const stream = await navigator.mediaDevices.getUserMedia(constraints);
+    this.activeStream = stream;
+    return stream;
   }
 
   private shouldSuppressError(error: string): boolean {
@@ -96,19 +148,6 @@ export class QrScanComponent implements OnDestroy {
         throw new Error('QR Scanner element not found');
       }
 
-      this.logger.debug('Requesting camera permissions');
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-      this.logger.debug('Camera permissions granted', {
-        tracks: stream.getVideoTracks().map(track => ({
-          label: track.label,
-          enabled: track.enabled
-        }))
-      });
-      
-      stream.getTracks().forEach(track => track.stop());
-      
-      this.html5QrCode = new Html5Qrcode("reader");
-
       this.logger.debug('Detecting cameras');
       const devices = await Html5Qrcode.getCameras();
       this.logger.info('Available cameras', { devices });
@@ -122,19 +161,18 @@ export class QrScanComponent implements OnDestroy {
 
         this.logger.info('Selected camera', { camera: frontCamera });
 
+        // Initialize camera with current mode settings
+        await this.initializeCamera(frontCamera.id);
+
+        this.html5QrCode = new Html5Qrcode("reader");
+
         const config = {
-          fps: 10, // Increased from 2 to 10 FPS for faster scanning
-          qrbox: { width: 250, height: 250 }, // Increased scan area
+          fps: this.isZoomedMode ? 15 : 30,
+          qrbox: { width: 250, height: 250 },
           aspectRatio: 1,
-          disableFlip: false, // Allow image flipping for better detection
+          disableFlip: false,
           experimentalFeatures: {
             useBarCodeDetectorIfSupported: true
-          },
-          videoConstraints: {
-            deviceId: frontCamera.id,
-            facingMode: "user",
-            width: { min: 640, ideal: 1280, max: 1920 },
-            height: { min: 480, ideal: 720, max: 1080 }
           }
         };
 
@@ -143,15 +181,12 @@ export class QrScanComponent implements OnDestroy {
           frontCamera.id,
           config,
           (decodedText) => {
-            // Process scan immediately
             this.logger.info('QR Code scanned', { decodedText });
             
             if (this.isRecentlyScanned(decodedText)) {
-              // Show duplicate scan message
               this.updateStatus(`ID already scanned, ID is: ${decodedText}`, false, 5000);
               this.logger.info('Duplicate scan detected', { decodedText });
             } else {
-              // Process new scan immediately
               requestAnimationFrame(() => {
                 this.qrHistory.addScan(decodedText);
                 this.updateStatus(`Scanned: ${decodedText}`, false, 5000);
@@ -159,7 +194,6 @@ export class QrScanComponent implements OnDestroy {
             }
           },
           (error) => {
-            // Only log and show errors that shouldn't be suppressed
             if (!this.shouldSuppressError(error)) {
               this.logger.error('Scanner error', { error });
               this.updateStatus(`Scanner error: ${error}`, true);
@@ -188,6 +222,10 @@ export class QrScanComponent implements OnDestroy {
   async stopScanner() {
     this.logger.debug('Stopping scanner');
     try {
+      if (this.activeStream) {
+        this.activeStream.getTracks().forEach(track => track.stop());
+        this.activeStream = null;
+      }
       if (this.html5QrCode) {
         await this.html5QrCode.stop();
         this.html5QrCode = null;
