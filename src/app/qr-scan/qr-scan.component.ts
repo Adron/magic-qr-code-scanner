@@ -1,6 +1,7 @@
 import { Component, OnDestroy } from '@angular/core';
 import { Html5Qrcode } from 'html5-qrcode';
 import { LoggerService } from '../services/logger.service';
+import { QrHistoryService } from '../services/qr-history.service';
 
 @Component({
   selector: 'app-qr-scan',
@@ -13,7 +14,10 @@ export class QrScanComponent implements OnDestroy {
   statusMessage = '';
   isError = false;
   
-  constructor(private logger: LoggerService) {}
+  constructor(
+    private logger: LoggerService,
+    private qrHistory: QrHistoryService
+  ) {}
 
   private updateStatus(message: string, isError = false) {
     this.logger.info('Status Update', { message, isError });
@@ -83,6 +87,7 @@ export class QrScanComponent implements OnDestroy {
           (decodedText) => {
             this.logger.info('QR Code scanned', { decodedText });
             this.updateStatus('QR Code scanned successfully!');
+            this.qrHistory.addScan(decodedText);
             this.stopScanner();
             alert(`QR Code scanned: ${decodedText}`);
           },
