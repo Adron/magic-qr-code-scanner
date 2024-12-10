@@ -12,13 +12,13 @@
     </p>
 
     <div class="scan-mode-control" *ngIf="isScannerEnabled">
-      <label for="scan-mode">Scan Distance: </label>
+      <label for="scan-mode">Scan Mode: </label>
       <select 
         id="scan-mode" 
         [value]="isZoomedMode ? 'zoomed' : 'normal'"
         (change)="onScanModeChange($any($event).target.value)">
-        <option value="normal">Normal (1-3 inches)</option>
-        <option value="zoomed">Zoomed (8-12 inches)</option>
+        <option value="normal">Standard Mode (4-8 inches)</option>
+        <option value="zoomed">Distance Mode (8-24 inches)</option>
       </select>
     </div>
   </div>
