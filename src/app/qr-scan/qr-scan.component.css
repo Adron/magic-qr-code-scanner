@@ -1,0 +1,53 @@
+.qr-scan-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100vh;
+  position: relative;
+}
+
+h1 {
+  font-size: 2rem;
+  color: #333;
+}
+
+.hidden {
+  display: none;
+}
+
+.scanner-container {
+  width: 100%;
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+#reader {
+  width: 100%;
+}
+
+.scan-button {
+  position: fixed;
+  bottom: 2rem;
+  right: 2rem;
+  background-color: #007bff;
+  color: white;
+  border: none;
+  border-radius: 50%;
+  width: 60px;
+  height: 60px;
+  cursor: pointer;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  transition: transform 0.2s;
+  z-index: 1000;
+}
+
+.scan-button:hover {
+  transform: scale(1.1);
+}
+
+.scan-button i {
+  font-size: 24px;
+} 

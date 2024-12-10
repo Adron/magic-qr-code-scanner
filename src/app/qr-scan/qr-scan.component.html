@@ -1,0 +1,11 @@
+<div class="qr-scan-container">
+  <h1 [class.hidden]="isScannerEnabled">QR Scan Time!</h1>
+  
+  <div class="scanner-container" *ngIf="isScannerEnabled">
+    <div id="reader"></div>
+  </div>
+
+  <button class="scan-button" (click)="startScan()" *ngIf="!isScannerEnabled">
+    <i class="fas fa-qrcode"></i>
+  </button>
+</div> 
