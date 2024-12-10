@@ -4,25 +4,25 @@ import { LoggerService } from '../services/logger.service';
 import { QrHistoryService } from '../services/qr-history.service';
 import { Html5Qrcode } from 'html5-qrcode';
 
-// Create a mock class
-class MockHtml5Qrcode {
-  static getCameras = jest.fn().mockResolvedValue([
-    { id: 'test-camera', label: 'Test Camera' }
-  ]);
+// Mock the HTML5QrCode class first
+jest.mock('html5-qrcode');
 
-  start = jest.fn((deviceId, config, successCallback) => {
-    // Simulate a successful scan
-    successCallback('test-qr-code');
+// Then create the mock implementation
+const mockHtml5Qrcode = {
+  getCameras: jest.fn().mockResolvedValue([
+    { id: 'test-camera', label: 'Front Camera' }
+  ]),
+  start: jest.fn().mockImplementation((deviceId, config, successCallback) => {
+    // Simulate a successful scan after a short delay
+    setTimeout(() => successCallback('test-qr-code'), 100);
     return Promise.resolve();
-  });
+  }),
+  stop: jest.fn().mockResolvedValue(undefined)
+};
 
-  stop = jest.fn().mockResolvedValue(undefined);
-}
-
-// Mock the HTML5QrCode class
-jest.mock('html5-qrcode', () => ({
-  Html5Qrcode: MockHtml5Qrcode
-}));
+// And set it as the mock implementation
+(Html5Qrcode as jest.Mock).mockImplementation(() => mockHtml5Qrcode);
+Html5Qrcode.getCameras = mockHtml5Qrcode.getCameras;
 
 describe('QrScanComponent', () => {
   let component: QrScanComponent;
@@ -67,6 +67,9 @@ describe('QrScanComponent', () => {
     readerElement.id = 'reader';
     document.body.appendChild(readerElement);
     
+    // Mock window.alert
+    window.alert = jest.fn();
+    
     fixture.detectChanges();
   });
 
@@ -86,17 +89,28 @@ describe('QrScanComponent', () => {
     expect(component.isScannerEnabled).toBeFalsy();
   });
 
-  it('should start scanner and handle QR code detection', async () => {
-    const historySpy = jest.spyOn(qrHistoryService, 'addScan');
-    const loggerSpy = jest.spyOn(loggerService, 'info');
-    
-    window.alert = jest.fn(); // Mock alert function
+  it('should start scanner successfully', async () => {
+    const loggerSpy = jest.spyOn(loggerService, 'debug');
     
     await component.startScan();
     
     expect(component.isScannerEnabled).toBeTruthy();
-    expect(historySpy).toHaveBeenCalledWith('test-qr-code');
-    expect(loggerSpy).toHaveBeenCalledWith('QR Code scanned', { decodedText: 'test-qr-code' });
+    expect(loggerSpy).toHaveBeenCalledWith('Starting QR scanner');
+  });
+
+  it('should handle QR code detection', (done) => {
+    const historySpy = jest.spyOn(qrHistoryService, 'addScan');
+    const loggerSpy = jest.spyOn(loggerService, 'info');
+    
+    component.startScan().then(() => {
+      // Wait for the mock scan to complete
+      setTimeout(() => {
+        expect(historySpy).toHaveBeenCalledWith('test-qr-code');
+        expect(loggerSpy).toHaveBeenCalledWith('QR Code scanned', { decodedText: 'test-qr-code' });
+        expect(window.alert).toHaveBeenCalledWith('QR Code scanned: test-qr-code');
+        done();
+      }, 150);
+    });
   });
 
   it('should handle scanner stop', async () => {
