@@ -1,6 +1,18 @@
 <div class="qr-scan-container">
-  <h1>QR Scan Time!</h1>
   
+  
+  <div class="app-info">
+    <h1>QR Scan Time!</h1>
+
+    <p class="description">
+      This application provides a simple and efficient way to scan QR codes using your device's camera. 
+      It features real-time scanning with a convenient floating window, comprehensive logging of all scanner 
+      events, and a history of all scanned QR codes. Perfect for testing QR codes or maintaining a record 
+      of scanned codes.
+    </p>
+
+  </div>
+
   <div class="scanner-container" [class.hidden]="!isScannerEnabled">
     <button class="close-scanner" (click)="stopScanner()" type="button">
       <i class="fas fa-times"></i>
