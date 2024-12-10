@@ -4,19 +4,24 @@ import { LoggerService } from '../services/logger.service';
 import { QrHistoryService } from '../services/qr-history.service';
 import { Html5Qrcode } from 'html5-qrcode';
 
+// Create a mock class
+class MockHtml5Qrcode {
+  static getCameras = jest.fn().mockResolvedValue([
+    { id: 'test-camera', label: 'Test Camera' }
+  ]);
+
+  start = jest.fn((deviceId, config, successCallback) => {
+    // Simulate a successful scan
+    successCallback('test-qr-code');
+    return Promise.resolve();
+  });
+
+  stop = jest.fn().mockResolvedValue(undefined);
+}
+
 // Mock the HTML5QrCode class
 jest.mock('html5-qrcode', () => ({
-  Html5Qrcode: jest.fn().mockImplementation(() => ({
-    start: jest.fn((deviceId, config, successCallback) => {
-      // Simulate a successful scan
-      successCallback('test-qr-code');
-      return Promise.resolve();
-    }),
-    stop: jest.fn().mockResolvedValue(undefined)
-  })),
-  getCameras: jest.fn().mockResolvedValue([
-    { id: 'test-camera', label: 'Test Camera' }
-  ])
+  Html5Qrcode: MockHtml5Qrcode
 }));
 
 describe('QrScanComponent', () => {
@@ -27,15 +32,22 @@ describe('QrScanComponent', () => {
 
   beforeEach(async () => {
     // Mock navigator.mediaDevices
+    const mockStream = {
+      getVideoTracks: () => [{
+        label: 'Test Camera',
+        enabled: true,
+        stop: jest.fn()
+      }],
+      getTracks: () => [{
+        label: 'Test Camera',
+        enabled: true,
+        stop: jest.fn()
+      }]
+    };
+
     Object.defineProperty(global.navigator, 'mediaDevices', {
       value: {
-        getUserMedia: jest.fn().mockResolvedValue({
-          getTracks: () => [{
-            label: 'Test Camera',
-            enabled: true,
-            stop: jest.fn()
-          }]
-        })
+        getUserMedia: jest.fn().mockResolvedValue(mockStream)
       },
       writable: true
     });
@@ -63,6 +75,7 @@ describe('QrScanComponent', () => {
     if (readerElement) {
       readerElement.remove();
     }
+    jest.clearAllMocks();
   });
 
   it('should create', () => {
