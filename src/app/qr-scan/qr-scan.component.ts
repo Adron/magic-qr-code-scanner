@@ -1,5 +1,6 @@
 import { Component, OnDestroy } from '@angular/core';
 import { Html5Qrcode } from 'html5-qrcode';
+import { LoggerService } from '../services/logger.service';
 
 @Component({
   selector: 'app-qr-scan',
@@ -12,38 +13,53 @@ export class QrScanComponent implements OnDestroy {
   statusMessage = '';
   isError = false;
   
+  constructor(private logger: LoggerService) {}
+
   private updateStatus(message: string, isError = false) {
-    console.log(`Status: ${message}`);
+    this.logger.info('Status Update', { message, isError });
     this.statusMessage = message;
     this.isError = isError;
   }
 
   async startScan() {
+    this.logger.debug('Starting QR scanner');
     this.updateStatus('Starting camera...');
     
     try {
-      // First check if we have camera permissions
-      this.updateStatus('Requesting camera permissions...');
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-      stream.getTracks().forEach(track => track.stop()); // Stop the stream after permission check
-      
       this.isScannerEnabled = true;
+      
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      const readerElement = document.getElementById('reader');
+      if (!readerElement) {
+        throw new Error('QR Scanner element not found');
+      }
+
+      this.logger.debug('Requesting camera permissions');
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      this.logger.debug('Camera permissions granted', {
+        tracks: stream.getVideoTracks().map(track => ({
+          label: track.label,
+          enabled: track.enabled
+        }))
+      });
+      
+      stream.getTracks().forEach(track => track.stop());
+      
       this.html5QrCode = new Html5Qrcode("reader");
 
-      // Get list of cameras
-      this.updateStatus('Detecting available cameras...');
+      this.logger.debug('Detecting cameras');
       const devices = await Html5Qrcode.getCameras();
-      console.log('Available cameras:', devices);
+      this.logger.info('Available cameras', { devices });
 
       if (devices && devices.length > 0) {
-        // Find front camera (usually the second camera if available)
         const frontCamera = devices.find(device => 
           device.label.toLowerCase().includes('front') ||
           device.label.toLowerCase().includes('user') ||
           device.label.toLowerCase().includes('facetime')
-        ) || devices[0]; // fallback to first camera if front camera not found
+        ) || devices[0];
 
-        this.updateStatus(`Selected camera: ${frontCamera.label}`);
+        this.logger.info('Selected camera', { camera: frontCamera });
 
         const config = {
           fps: 10,
@@ -60,29 +76,30 @@ export class QrScanComponent implements OnDestroy {
           }
         };
 
-        this.updateStatus('Initializing camera...');
+        this.logger.debug('Starting camera with config', { config });
         await this.html5QrCode.start(
           frontCamera.id,
           config,
           (decodedText) => {
-            console.log('Scanned Successfully:', decodedText);
+            this.logger.info('QR Code scanned', { decodedText });
             this.updateStatus('QR Code scanned successfully!');
             this.stopScanner();
             alert(`QR Code scanned: ${decodedText}`);
           },
           (error) => {
-            // Only log critical errors
             if (!error.includes('No QR code found')) {
+              this.logger.error('Scanner error', { error });
               this.updateStatus(`Scanner error: ${error}`, true);
             }
           }
         );
+        this.logger.info('Camera initialized successfully');
         this.updateStatus('Camera ready! Point at a QR code to scan.');
       } else {
         throw new Error('No cameras found');
       }
     } catch (err) {
-      console.error('Start Error:', err);
+      this.logger.error('Scanner start error', { error: err });
       this.isScannerEnabled = false;
       
       if (err instanceof DOMException && err.name === 'NotAllowedError') {
@@ -96,16 +113,17 @@ export class QrScanComponent implements OnDestroy {
   }
 
   async stopScanner() {
-    this.updateStatus('Stopping scanner...');
+    this.logger.debug('Stopping scanner');
     try {
       if (this.html5QrCode) {
         await this.html5QrCode.stop();
         this.html5QrCode = null;
       }
       this.isScannerEnabled = false;
+      this.logger.info('Scanner stopped successfully');
       this.updateStatus('Scanner stopped.');
     } catch (err) {
-      console.error('Error stopping scanner:', err);
+      this.logger.error('Error stopping scanner', { error: err });
       this.updateStatus('Error stopping scanner.', true);
     }
   }

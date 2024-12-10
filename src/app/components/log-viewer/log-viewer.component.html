@@ -1,0 +1,22 @@
+<div class="log-viewer" [class.expanded]="isExpanded">
+  <div class="log-header">
+    <button class="toggle-button" (click)="toggleExpand()">
+      <i class="fas" [class.fa-chevron-left]="isExpanded" [class.fa-chevron-right]="!isExpanded"></i>
+    </button>
+    <span *ngIf="isExpanded">System Logs</span>
+    <button *ngIf="isExpanded" class="clear-button" (click)="clearLogs()">
+      <i class="fas fa-trash"></i>
+    </button>
+  </div>
+  
+  <div class="log-content" *ngIf="isExpanded">
+    <div class="log-entry" *ngFor="let log of logs$ | async" [class]="getLogClass(log.level)">
+      <div class="log-timestamp">{{ log.timestamp | date:'HH:mm:ss.SSS' }}</div>
+      <div class="log-level">{{ log.level }}</div>
+      <div class="log-message">{{ log.message }}</div>
+      <div class="log-data" *ngIf="log.data">
+        {{ log.data | json }}
+      </div>
+    </div>
+  </div>
+</div> 

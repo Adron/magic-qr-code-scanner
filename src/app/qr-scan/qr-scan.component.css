@@ -125,4 +125,9 @@ h1 {
 
 .status-message.error {
   background-color: rgba(220, 53, 69, 0.9);
+}
+
+/* Add this to your existing CSS */
+.scanner-container.hidden {
+  display: none;
 } 
