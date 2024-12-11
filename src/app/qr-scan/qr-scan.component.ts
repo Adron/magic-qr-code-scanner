@@ -19,7 +19,7 @@ export class QrScanComponent implements OnDestroy {
   private readonly ERROR_SUPPRESSION_DURATION = 300000; // 5 minutes in milliseconds
   private readonly DUPLICATE_CHECK_DURATION = 60000; // 1 minute
   private recentScans = new Map<string, number>();
-  private isTablet: boolean;
+  private isIpad9: boolean;
 
   // Common error messages to suppress
   private readonly SUPPRESSED_ERRORS = [
@@ -32,10 +32,11 @@ export class QrScanComponent implements OnDestroy {
     private logger: LoggerService,
     private qrHistory: QrHistoryService
   ) {
-    // Check if device is a tablet/iPad
-    this.isTablet = /iPad|tablet|Android(?!.*Mobile)/i.test(navigator.userAgent);
-    if (this.isTablet) {
-      this.logger.info('Tablet device detected, using tablet-optimized settings');
+    // Check specifically for iPad 9
+    this.isIpad9 = /iPad/.test(navigator.userAgent) && 
+                   (/CPU OS 15/.test(navigator.userAgent) || /CPU OS 16/.test(navigator.userAgent));
+    if (this.isIpad9) {
+      this.logger.info('iPad 9 detected, using optimized settings');
     }
   }
 
@@ -44,7 +45,6 @@ export class QrScanComponent implements OnDestroy {
     this.statusMessage = message;
     this.isError = isError;
     
-    // Clear status message after specified duration unless it's an error
     if (!isError && duration > 0) {
       setTimeout(() => {
         if (this.statusMessage === message) {
@@ -62,19 +62,19 @@ export class QrScanComponent implements OnDestroy {
       const videoTrack = this.activeStream.getVideoTracks()[0];
       
       if (this.isZoomedMode) {
-        // Distance mode
-        await videoTrack.applyConstraints({
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
-          frameRate: { ideal: this.isTablet ? 24 : 15 } // Higher frame rate for tablets
-        });
-        this.logger.info('Switched to distance mode');
-        this.updateStatus('Switched to distance mode (8-24 inches)', false, 3000);
-      } else {
-        // Standard mode
+        // Distance mode - iPad 9 front camera is 1.2MP (roughly 1280x960)
         await videoTrack.applyConstraints({
           width: { ideal: 1280 },
-          height: { ideal: 720 },
+          height: { ideal: 960 },
+          frameRate: { ideal: 15 } // Lower frame rate for better exposure
+        });
+        this.logger.info('Switched to distance mode');
+        this.updateStatus('Switched to distance mode (12+ inches)', false, 3000);
+      } else {
+        // Standard mode - slightly lower resolution for faster processing
+        await videoTrack.applyConstraints({
+          width: { ideal: 1024 },
+          height: { ideal: 768 },
           frameRate: { ideal: 30 }
         });
         this.logger.info('Switched to standard mode');
@@ -82,26 +82,23 @@ export class QrScanComponent implements OnDestroy {
       }
     } catch (error) {
       this.logger.error('Failed to update camera settings', { error });
-      this.updateStatus('Failed to change scan mode - continuing with current settings', true);
+      this.updateStatus('Continuing with current settings', true);
     }
   }
 
   private async initializeCamera(deviceId: string): Promise<MediaStream> {
-    // Base constraints that work well across devices
+    // iPad 9 front camera optimized settings
     const constraints: MediaStreamConstraints = {
       video: {
         deviceId: deviceId,
-        width: { min: 640, ideal: this.isZoomedMode ? 1920 : 1280, max: 1920 },
-        height: { min: 480, ideal: this.isZoomedMode ? 1080 : 720, max: 1080 },
+        width: { min: 1024, ideal: this.isZoomedMode ? 1280 : 1024, max: 1280 },
+        height: { min: 768, ideal: this.isZoomedMode ? 960 : 768, max: 960 },
         frameRate: { 
           min: 15, 
-          ideal: this.isTablet ? 
-            (this.isZoomedMode ? 24 : 30) : // Tablet frame rates
-            (this.isZoomedMode ? 15 : 30),  // Non-tablet frame rates
+          ideal: this.isZoomedMode ? 15 : 30,
           max: 30 
         },
-        facingMode: this.isTablet ? "environment" : "user", // Prefer back camera on tablets
-        aspectRatio: { ideal: 1.7777777778 }
+        facingMode: "user" // Always use front camera
       }
     };
 
@@ -109,62 +106,27 @@ export class QrScanComponent implements OnDestroy {
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
       this.activeStream = stream;
 
-      // Log actual track settings for debugging
+      // Log actual settings for debugging
       const videoTrack = stream.getVideoTracks()[0];
       const settings = videoTrack.getSettings();
-      this.logger.info('Actual camera settings:', settings);
+      this.logger.info('Active camera settings:', settings);
 
       return stream;
     } catch (error) {
-      // If high resolution fails, try with more basic settings
-      this.logger.warn('Failed to initialize with high resolution, trying fallback settings', { error });
+      this.logger.warn('Failed with optimal settings, trying fallback settings', { error });
+      
+      // Fallback to minimum viable settings
       const fallbackConstraints: MediaStreamConstraints = {
         video: {
           deviceId: deviceId,
-          facingMode: this.isTablet ? "environment" : "user"
+          facingMode: "user"
         }
       };
+
       const stream = await navigator.mediaDevices.getUserMedia(fallbackConstraints);
       this.activeStream = stream;
       return stream;
     }
-  }
-
-  private shouldSuppressError(error: string): boolean {
-    // Check if the error message contains any of the suppressed phrases
-    const isCommonError = this.SUPPRESSED_ERRORS.some(suppressedError => 
-      error.toLowerCase().includes(suppressedError.toLowerCase())
-    );
-
-    if (!isCommonError) {
-      return false; // Don't suppress uncommon errors
-    }
-
-    const now = Date.now();
-    if (now - this.lastErrorTime < this.ERROR_SUPPRESSION_DURATION) {
-      return true;
-    }
-    this.lastErrorTime = now;
-    return false;
-  }
-
-  private isRecentlyScanned(decodedText: string): boolean {
-    const now = Date.now();
-    const lastScanTime = this.recentScans.get(decodedText);
-    
-    // Clean up old entries
-    this.recentScans.forEach((timestamp, code) => {
-      if (now - timestamp > this.DUPLICATE_CHECK_DURATION) {
-        this.recentScans.delete(code);
-      }
-    });
-
-    if (lastScanTime && now - lastScanTime < this.DUPLICATE_CHECK_DURATION) {
-      return true;
-    }
-
-    this.recentScans.set(decodedText, now);
-    return false;
   }
 
   async startScan() {
@@ -173,8 +135,6 @@ export class QrScanComponent implements OnDestroy {
     
     try {
       this.isScannerEnabled = true;
-      
-      await new Promise(resolve => setTimeout(resolve, 100));
       
       const readerElement = document.getElementById('reader');
       if (!readerElement) {
@@ -186,33 +146,21 @@ export class QrScanComponent implements OnDestroy {
       this.logger.info('Available cameras', { devices });
 
       if (devices && devices.length > 0) {
-        // For tablets, prefer back camera if available
-        const preferredCamera = this.isTablet ?
-          devices.find(device => 
-            device.label.toLowerCase().includes('back') ||
-            device.label.toLowerCase().includes('rear') ||
-            device.label.toLowerCase().includes('environment')
-          ) || devices[0] :
-          devices.find(device => 
-            device.label.toLowerCase().includes('front') ||
-            device.label.toLowerCase().includes('user') ||
-            device.label.toLowerCase().includes('facetime')
-          ) || devices[0];
+        // For iPad 9, prefer front camera
+        const frontCamera = devices.find(device => 
+          device.label.toLowerCase().includes('front') ||
+          device.label.toLowerCase().includes('facetime') ||
+          device.label.toLowerCase().includes('user')
+        ) || devices[0];
 
-        this.logger.info('Selected camera', { camera: preferredCamera });
-
-        // Initialize camera with current mode settings
-        await this.initializeCamera(preferredCamera.id);
-
+        this.logger.info('Selected camera', { camera: frontCamera });
+        await this.initializeCamera(frontCamera.id);
         this.html5QrCode = new Html5Qrcode("reader");
 
         const config = {
-          fps: this.isTablet ? 
-            (this.isZoomedMode ? 24 : 30) : // Tablet frame rates
-            (this.isZoomedMode ? 15 : 30),  // Non-tablet frame rates
-          qrbox: { width: 250, height: 250 },
-          aspectRatio: 1,
-          disableFlip: this.isTablet, // Disable flip on tablets
+          fps: this.isZoomedMode ? 15 : 30,
+          qrbox: { width: 250, height: 250 }, // Optimized for iPad 9 resolution
+          formatsToSupport: ['QR_CODE'],
           experimentalFeatures: {
             useBarCodeDetectorIfSupported: true
           }
@@ -220,7 +168,7 @@ export class QrScanComponent implements OnDestroy {
 
         this.logger.debug('Starting camera with config', { config });
         await this.html5QrCode.start(
-          preferredCamera.id,
+          frontCamera.id,
           config,
           (decodedText) => {
             this.logger.info('QR Code scanned', { decodedText });
@@ -259,6 +207,41 @@ export class QrScanComponent implements OnDestroy {
         this.updateStatus('Failed to start the camera. Please make sure you have a working camera and try again.', true);
       }
     }
+  }
+
+  private shouldSuppressError(error: string): boolean {
+    const isCommonError = this.SUPPRESSED_ERRORS.some(suppressedError => 
+      error.toLowerCase().includes(suppressedError.toLowerCase())
+    );
+
+    if (!isCommonError) {
+      return false;
+    }
+
+    const now = Date.now();
+    if (now - this.lastErrorTime < this.ERROR_SUPPRESSION_DURATION) {
+      return true;
+    }
+    this.lastErrorTime = now;
+    return false;
+  }
+
+  private isRecentlyScanned(decodedText: string): boolean {
+    const now = Date.now();
+    const lastScanTime = this.recentScans.get(decodedText);
+    
+    this.recentScans.forEach((timestamp, code) => {
+      if (now - timestamp > this.DUPLICATE_CHECK_DURATION) {
+        this.recentScans.delete(code);
+      }
+    });
+
+    if (lastScanTime && now - lastScanTime < this.DUPLICATE_CHECK_DURATION) {
+      return true;
+    }
+
+    this.recentScans.set(decodedText, now);
+    return false;
   }
 
   async stopScanner() {
