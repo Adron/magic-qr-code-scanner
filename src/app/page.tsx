@@ -105,21 +105,46 @@ export default function Home() {
     getCameras();
 
     // Listen for device changes
-    navigator.mediaDevices.addEventListener('devicechange', () => {
+    const handleDeviceChange = () => {
       addToEventLog('Device change detected, refreshing camera list...');
       getCameras();
-    });
+    };
+    
+    navigator.mediaDevices.addEventListener('devicechange', handleDeviceChange);
 
     // Cleanup function
     return () => {
-      navigator.mediaDevices.removeEventListener('devicechange', getCameras);
+      navigator.mediaDevices.removeEventListener('devicechange', handleDeviceChange);
       if (scannerRef.current) {
+        setIsScanning(false);
         try {
           scannerRef.current.stop()
-            .then(() => scannerRef.current?.clear())
-            .catch(error => console.error('Error cleaning up scanner:', error));
+            .then(() => {
+              try {
+                if (scannerRef.current) {
+                  scannerRef.current.clear();
+                }
+              } catch (error) {
+                console.log('Cleanup error (can be ignored):', error);
+              }
+            })
+            .catch(error => console.log('Cleanup error (can be ignored):', error))
+            .finally(() => {
+              scannerRef.current = null;
+              // Clean up any remaining video elements
+              const videoElement = document.querySelector('#qr-reader video');
+              if (videoElement) {
+                videoElement.remove();
+              }
+              // Clean up the qr-reader element contents
+              const qrReader = document.getElementById('qr-reader');
+              if (qrReader) {
+                qrReader.innerHTML = '';
+              }
+            });
         } catch (error) {
-          console.error('Error cleaning up scanner:', error);
+          console.log('Cleanup error (can be ignored):', error);
+          scannerRef.current = null;
         }
       }
     };
@@ -232,20 +257,61 @@ export default function Home() {
   const stopScanning = async () => {
     if (scannerRef.current) {
       try {
-        await scannerRef.current.stop();
-        await scannerRef.current.clear();
-        scannerRef.current = null;
+        // Set state first to prevent any new scans
         setIsScanning(false);
+        
+        // Attempt to stop the scanner
+        try {
+          await scannerRef.current.stop();
+        } catch (stopError) {
+          console.log('Stop error (can be ignored):', stopError);
+        }
+
+        // Clear the scanner with error handling
+        try {
+          await scannerRef.current.clear();
+        } catch (clearError) {
+          console.log('Clear error (can be ignored):', clearError);
+        }
+
+        // Clean up the scanner reference
+        scannerRef.current = null;
+        
+        // Clean up any remaining video elements
+        const videoElement = document.querySelector('#qr-reader video');
+        if (videoElement) {
+          videoElement.remove();
+        }
+
+        // Clean up the qr-reader element contents
+        const qrReader = document.getElementById('qr-reader');
+        if (qrReader) {
+          qrReader.innerHTML = '';
+        }
+
         addToEventLog('Stopped QR scanner');
       } catch (error) {
         console.error('Error stopping scanner:', error);
         addToEventLog('Error stopping scanner');
+        
+        // Ensure we still clean up even if there's an error
+        scannerRef.current = null;
+        setIsScanning(false);
       }
     }
   };
 
   const isFirstOccurrence = (value: string, index: number, array: string[]) => {
     return array.indexOf(value) === index;
+  };
+
+  const isValidUrl = (str: string) => {
+    try {
+      const url = new URL(str);
+      return url.protocol === 'http:' || url.protocol === 'https:';
+    } catch {
+      return false;
+    }
   };
 
   return (
@@ -256,11 +322,11 @@ export default function Home() {
       </header>
 
       {/* Main content with three panes */}
-      <div className="flex flex-1 p-4 gap-4">
+      <div className="grid grid-cols-3 gap-4 p-4 max-h-[calc(100vh-5rem)] overflow-hidden">
         {/* Left pane - Event log */}
-        <div className="flex-1 border rounded-lg p-4 shadow-md">
+        <div className="border rounded-lg p-4 shadow-md overflow-hidden flex flex-col">
           <h2 className="text-lg font-semibold mb-4">Event Log</h2>
-          <div className="h-full overflow-y-auto">
+          <div className="overflow-y-auto">
             {eventLog.length > 0 ? (
               eventLog.map((event, index) => (
                 <div key={index} className="text-sm mb-2">{event}</div>
@@ -272,57 +338,72 @@ export default function Home() {
         </div>
 
         {/* Middle pane - QR Scanner */}
-        <div className="flex-1 border rounded-lg p-4 shadow-md">
+        <div className="border rounded-lg p-4 shadow-md overflow-hidden flex flex-col">
           <h2 className="text-lg font-semibold mb-4">QR Scanner</h2>
-          <div className="aspect-square bg-gray-100 rounded-lg flex flex-col items-center justify-center">
-            {!isScanning ? (
-              <button
-                onClick={handleStartScanning}
-                className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors"
-              >
-                Start QR Scanner
-              </button>
-            ) : (
-              <>
-                <div className={styles.qrContainer}>
-                  <div id="qr-reader" className="w-full h-full" />
-                  <div className={styles.qrOverlay}>
-                    <div className={styles.targetBox}>
-                      {/* Corner markers */}
-                      <div className={`${styles.cornerMarker} top-0 left-0 border-t-0 border-l-0`} />
-                      <div className={`${styles.cornerMarker} top-0 right-0 border-t-0 border-r-0`} />
-                      <div className={`${styles.cornerMarker} bottom-0 left-0 border-b-0 border-l-0`} />
-                      <div className={`${styles.cornerMarker} bottom-0 right-0 border-b-0 border-r-0`} />
-                      {/* Scanning line */}
-                      <div className={styles.scanLine} />
+          <div className="flex flex-col items-center justify-center flex-1">
+            <div className="w-full max-w-[min(100%,_400px)] aspect-square bg-gray-100 rounded-lg flex flex-col items-center justify-center">
+              {!isScanning ? (
+                <button
+                  onClick={handleStartScanning}
+                  className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  Start QR Scanner
+                </button>
+              ) : (
+                <>
+                  <div className={styles.qrContainer}>
+                    <div id="qr-reader" className="w-full h-full" />
+                    <div className={styles.qrOverlay}>
+                      <div className={styles.targetBox}>
+                        {/* Corner markers */}
+                        <div className={`${styles.cornerMarker} top-0 left-0 border-t-0 border-l-0`} />
+                        <div className={`${styles.cornerMarker} top-0 right-0 border-t-0 border-r-0`} />
+                        <div className={`${styles.cornerMarker} bottom-0 left-0 border-b-0 border-l-0`} />
+                        <div className={`${styles.cornerMarker} bottom-0 right-0 border-b-0 border-r-0`} />
+                        {/* Scanning line */}
+                        <div className={styles.scanLine} />
+                      </div>
                     </div>
                   </div>
-                </div>
-                <button
-                  onClick={stopScanning}
-                  className="mt-4 bg-red-600 text-white px-6 py-3 rounded-lg hover:bg-red-700 transition-colors"
-                >
-                  Stop Scanner
-                </button>
-              </>
-            )}
+                  <button
+                    onClick={stopScanning}
+                    className="mt-4 bg-red-600 text-white px-6 py-3 rounded-lg hover:bg-red-700 transition-colors"
+                  >
+                    Stop Scanner
+                  </button>
+                </>
+              )}
+            </div>
           </div>
         </div>
 
         {/* Right pane - Scanned Values */}
-        <div className="flex-1 border rounded-lg p-4 shadow-md">
+        <div className="border rounded-lg p-4 shadow-md overflow-hidden flex flex-col">
           <h2 className="text-lg font-semibold mb-4">Scanned Values</h2>
-          <div className="h-full overflow-y-auto">
+          <div className="overflow-y-auto">
             {scannedValues.length > 0 ? (
               scannedValues.map((value, index, array) => (
                 <div key={index} className="text-sm mb-2 p-2 bg-gray-800 text-gray-100 rounded flex items-center justify-between">
-                  <span>{value}</span>
+                  <span className="break-all pr-2">
+                    {isValidUrl(value) ? (
+                      <a 
+                        href={value}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-400 hover:text-blue-300 hover:underline"
+                      >
+                        {value}
+                      </a>
+                    ) : (
+                      value
+                    )}
+                  </span>
                   {isFirstOccurrence(value, index, array) ? (
-                    <svg className="h-5 w-5 text-green-500" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+                    <svg className="h-5 w-5 text-green-500 shrink-0 ml-2" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
                       <path fillRule="evenodd" d="M2.25 12c0-5.385 4.365-9.75 9.75-9.75s9.75 4.365 9.75 9.75-4.365 9.75-9.75 9.75S2.25 17.385 2.25 12zm13.36-1.814a.75.75 0 10-1.22-.872l-3.236 4.53L9.53 12.22a.75.75 0 00-1.06 1.06l2.25 2.25a.75.75 0 001.14-.094l3.75-5.25z" clipRule="evenodd" />
                     </svg>
                   ) : (
-                    <svg className="h-5 w-5 text-yellow-500" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+                    <svg className="h-5 w-5 text-yellow-500 shrink-0 ml-2" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
                       <path fillRule="evenodd" d="M12 2.25c-5.385 0-9.75 4.365-9.75 9.75s4.365 9.75 9.75 9.75 9.75-4.365 9.75-9.75S17.385 2.25 12 2.25zm.75 4.5a.75.75 0 00-1.5 0v4.5h-4.5a.75.75 0 000 1.5h4.5v4.5a.75.75 0 001.5 0v-4.5h4.5a.75.75 0 000-1.5h-4.5v-4.5z" clipRule="evenodd" />
                     </svg>
                   )}
